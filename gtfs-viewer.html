@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GTFS Static Data Viewer</title>
+<style>
+  :root {
+    --bg: #0f1420;
+    --panel: #171e2e;
+    --panel-2: #1d2740;
+    --border: #2a3650;
+    --text: #e6ebf4;
+    --muted: #8b98b0;
+    --accent: #4f8cff;
+    --accent-2: #35d0a5;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 16px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .fileinfo { color: var(--muted); font-size: 12px; }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  .btn:hover { filter: brightness(1.1); }
+  nav {
+    display: flex;
+    gap: 2px;
+    padding: 8px 16px 0;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+  }
+  nav button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 9px 18px;
+    font-size: 13px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  nav button.active {
+    background: var(--bg);
+    color: var(--text);
+    border-color: var(--border);
+    position: relative;
+    top: 1px;
+  }
+  main { flex: 1; min-height: 0; display: flex; }
+  section.frame { display: none; flex: 1; min-width: 0; flex-direction: column; padding: 14px 16px; }
+  section.frame.active { display: flex; }
+  .toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .toolbar input[type="text"], .toolbar select {
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  .toolbar input[type="text"] { width: 260px; }
+  .hint { color: var(--muted); font-size: 12px; }
+  .tablewrap {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td {
+    text-align: left;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    max-width: 420px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  th {
+    position: sticky;
+    top: 0;
+    background: var(--panel-2);
+    color: var(--muted);
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    z-index: 1;
+  }
+  tbody tr:hover { background: #222d47; cursor: pointer; }
+  tbody tr.selected { background: #274068; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .chip {
+    display: inline-block;
+    min-width: 20px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    color: #fff;
+    font-weight: 700;
+    font-size: 12px;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    background: var(--panel-2);
+    color: var(--muted);
+    border: 1px solid var(--border);
+  }
+  .empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .statusbar {
+    padding: 6px 16px;
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    background: var(--panel);
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+  .split { display: flex; gap: 14px; flex: 1; min-height: 0; }
+  .split > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .split h2 { font-size: 13px; color: var(--muted); margin: 0 0 8px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; }
+  .timetable-head {
+    display: flex;
+    gap: 14px;
+    align-items: baseline;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+  .timetable-head .title { font-size: 15px; font-weight: 600; }
+  .warn { color: #e6b455; margin-left: 4px; }
+  @media (max-width: 900px) { .split { flex-direction: column; } }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>GTFS Static Viewer</h1>
+  <label class="btn" for="fileInput">Open GTFS zip…</label>
+  <input id="fileInput" type="file" accept=".zip,application/zip" style="display:none">
+  <span class="fileinfo" id="fileInfo">No feed loaded — pick a GTFS .zip (routes.txt, trips.txt, stops.txt, stop_times.txt)</span>
+</header>
+
+<nav>
+  <button data-view="routes" class="active">🚏 Routes</button>
+  <button data-view="trips">🚌 Trips &amp; Stops</button>
+  <button data-view="stoptimes">🕐 Stop Times</button>
+</nav>
+
+<main>
+  <!-- ======================== ROUTES ======================== -->
+  <section class="frame active" id="view-routes">
+    <div class="toolbar">
+      <input type="text" id="routesSearch" placeholder="Search route id / name…">
+      <span class="hint" id="routesHint"></span>
+    </div>
+    <div class="tablewrap" id="routesWrap"></div>
+  </section>
+
+  <!-- ==================== TRIPS & STOPS ===================== -->
+  <section class="frame" id="view-trips">
+    <div class="split">
+      <div>
+        <div class="toolbar">
+          <select id="tripsRouteSelect"></select>
+          <span class="hint" id="tripsHint"></span>
+        </div>
+        <h2>Trips</h2>
+        <div class="tablewrap" id="tripsWrap"></div>
+      </div>
+      <div>
+        <div class="toolbar">
+          <input type="text" id="stopsSearch" placeholder="Search stop name / code…">
+          <span class="hint" id="stopsHint"></span>
+        </div>
+        <h2>Stops</h2>
+        <div class="tablewrap" id="stopsWrap"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= STOP TIMES ====================== -->
+  <section class="frame" id="view-stoptimes">
+    <div class="toolbar">
+      <select id="stRouteSelect"></select>
+      <select id="stTripSelect"></select>
+      <span class="hint">Times are GTFS “HH:MM:SS” and may exceed 24:00:00</span>
+    </div>
+    <div class="timetable-head" id="ttHead" style="display:none"></div>
+    <div class="tablewrap" id="ttWrap">
+      <div class="empty">Select a trip to view its timetable</div>
+    </div>
+  </section>
+</main>
+
+<div class="statusbar" id="statusbar"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.4.1/papaparse.min.js"></script>
+<script>
+"use strict";
+
+/* ----------------------------- state ----------------------------- */
+const state = {
+  routesById: new Map(),
+  tripsByRoute: new Map(),
+  tripsById: new Map(),
+  stopsById: new Map(),
+  stopTimesByTrip: new Map(),
+  routes: [],
+  trips: [],
+  stops: [],
+  counts: {},
+  selectedRouteId: null,
+  selectedTripId: null,
+};
+
+const PICKUP_LABELS = {
+  0: "normal pickup", 1: "no pickup available", 2: "phone agency to arrange pickup", 3: "contact driver",
+};
+const ROUTE_TYPES = {
+  0: "Tram / Streetcar", 1: "Subway / Metro", 2: "Rail", 3: "Bus", 4: "Ferry",
+  5: "Cable Tram", 6: "Aerial Lift", 7: "Funicular", 8: "Trolleybus", 9: "Monorail",
+  11: "Train", 12: "Horse-drawn Carriage",
+};
+const routeTypeLabel = (t) => ROUTE_TYPES[+t] || `Type ${t}`;
+const esc = (s) => String(s ?? "")
+  .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+  .replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+
+/* --------------------------- CSV / zip --------------------------- */
+function parseCsv(text, fileLabel) {
+  const res = Papa.parse(text, { header: true, skipEmptyLines: "greedy", transformHeader: (h) => h.trim() });
+  if (res.errors.length && !res.data.length) throw new Error(`${fileLabel}: ${res.errors[0].message}`);
+  return res.data;
+}
+
+async function readZip(file) {
+  const zip = await JSZip.loadAsync(file);
+  const entries = new Map();
+  zip.forEach((path, entry) => {
+    if (entry.dir) return;
+    const base = path.split("/").pop();
+    if (base) entries.set(base.toLowerCase(), entry);
+  });
+  const collect = async (name) => {
+    const entry = entries.get(name);
+    if (!entry) return null;
+    return parseCsv(await entry.async("string"), name);
+  };
+  const routes = await collect("routes.txt");
+  const trips = await collect("trips.txt");
+  const stops = await collect("stops.txt");
+  const stopTimes = await collect("stop_times.txt");
+  return { routes, trips, stops, stopTimes };
+}
+
+/* ---------------------------- load feed --------------------------- */
+async function loadFeed(file) {
+  resetState();
+  try {
+    document.getElementById("statusbar").textContent = `Parsing ${file.name}…`;
+    const data = await readZip(file);
+    buildIndex(data);
+
+    document.getElementById("fileInfo").textContent = `${file.name} — ${file.size.toLocaleString()} bytes`;
+    renderStatusbar();
+    renderRouteSelects();
+    showView("routes");
+    renderRoutes();
+    renderTripsPanel();
+    renderStopsPanel();
+    renderStopTimesView();
+  } catch (err) {
+    document.getElementById("fileInfo").textContent = `Failed to load feed: ${err.message}`;
+    document.getElementById("statusbar").textContent = "";
+  }
+}
+
+function resetState() {
+  state.routesById.clear(); state.tripsByRoute.clear(); state.tripsById.clear();
+  state.stopsById.clear(); state.stopTimesByTrip.clear();
+  state.routes = state.trips = state.stops = [];
+  state.counts = {};
+  state.selectedRouteId = state.selectedTripId = null;
+}
+
+function buildIndex(data) {
+  const c = state.counts;
+  if (data.routes) {
+    state.routes = data.routes;
+    for (const r of data.routes) state.routesById.set(r.route_id, r);
+    c.routes = data.routes.length;
+  }
+  if (data.trips) {
+    state.trips = data.trips;
+    for (const t of data.trips) {
+      state.tripsById.set(t.trip_id, t);
+      if (!state.tripsByRoute.has(t.route_id)) state.tripsByRoute.set(t.route_id, []);
+      state.tripsByRoute.get(t.route_id).push(t);
+    }
+    c.trips = data.trips.length;
+  }
+  if (data.stops) {
+    state.stops = data.stops;
+    for (const s of data.stops) state.stopsById.set(s.stop_id, s);
+    c.stops = data.stops.length;
+  }
+  if (data.stopTimes) {
+    for (const st of data.stopTimes) {
+      if (!state.stopTimesByTrip.has(st.trip_id)) state.stopTimesByTrip.set(st.trip_id, []);
+      state.stopTimesByTrip.get(st.trip_id).push(st);
+    }
+    c.stopTimes = data.stopTimes.length;
+    c.timetabledTrips = state.stopTimesByTrip.size;
+  }
+  for (const arr of state.tripsByRoute.values()) arr.sort(tripSort);
+}
+
+const toSecs = (t) => {
+  const m = /^(\d+):(\d+):(\d+)/.exec(t || "");
+  return m ? (+m[1]) * 3600 + (+m[2]) * 60 + (+m[3]) : -1;
+};
+const tripSort = (a, b) => {
+  const list = state.stopTimesByTrip.get(a?.trip_id) || [];
+  const blist = state.stopTimesByTrip.get(b?.trip_id) || [];
+  const a0 = list.length ? toSecs(list[0].departure_time) : -1;
+  const b0 = blist.length ? toSecs(blist[0].departure_time) : -1;
+  return a0 - b0 || String(a?.trip_id).localeCompare(String(b?.trip_id), undefined, { numeric: true });
+};
+
+/* ------------------------------ views ----------------------------- */
+function showView(name) {
+  for (const btn of navButtons()) btn.classList.toggle("active", btn.dataset.view === name);
+  for (const sec of document.querySelectorAll("section.frame")) sec.classList.remove("active");
+  document.getElementById(`view-${name}`).classList.add("active");
+}
+const navButtons = () => document.querySelectorAll("nav button");
+
+function renderStatusbar() {
+  const c = state.counts;
+  const item = (label, n) => `<span><b>${n?.toLocaleString() ?? "—"}</b> ${label}</span>`;
+  document.getElementById("statusbar").innerHTML = [
+    item("routes", c.routes), item("trips", c.trips), item("stops", c.stops),
+    item("stop_time rows", c.stopTimes), item("timetabled trips", c.timetabledTrips),
+  ].join("");
+}
+
+/* ---------------------------- routes view ------------------------- */
+function renderRoutes() {
+  const wrap = document.getElementById("routesWrap");
+  wrap.innerHTML = state.routes.length ? `
+    <table>
+      <thead><tr><th></th><th>Route ID</th><th>Short</th><th>Long name</th><th>Type</th><th class="num">Trips</th></tr></thead>
+      <tbody id="routesBody"></tbody>
+    </table>` : `<div class="empty">${state.routesById.size ? "Feed has no routes.txt" : "Load a GTFS zip to begin"}</div>`;
+  filterRoutes();
+}
+
+function filterRoutes() {
+  const body = document.getElementById("routesBody");
+  if (!body) return;
+  const q = document.getElementById("routesSearch").value.trim().toLowerCase();
+  let shown = 0;
+  const rows = state.routes.filter((r) => {
+    if (!q) return true;
+    return [r.route_id, r.route_short_name, r.route_long_name]
+      .some((v) => (v || "").toLowerCase().includes(q));
+  });
+  body.innerHTML = rows.map((r) => {
+    const color = r.route_color ? `#${r.route_color}` : "var(--panel-2)";
+    const contrast = r.route_text_color ? `#${r.route_text_color}` : "#fff";
+    const nTrips = (state.tripsByRoute.get(r.route_id) || []).length;
+    shown++;
+    const selected = r.route_id === state.selectedRouteId ? " selected" : "";
+    return `<tr data-route="${esc(r.route_id)}" class="${selected}">
+      <td><span class="chip" style="background:${esc(color)};color:${esc(contrast)}">${esc(r.route_short_name || "")}</span></td>
+      <td>${esc(r.route_id)}</td>
+      <td>${esc(r.route_short_name || "—")}</td>
+      <td style="white-space:normal">${esc(r.route_long_name || "")}</td>
+      <td><span class="badge">${esc(routeTypeLabel(r.route_type))}</span></td>
+      <td class="num">${nTrips}</td>
+    </tr>`;
+  }).join("");
+  document.getElementById("routesHint").textContent = `${shown.toLocaleString()} / ${state.routes.length.toLocaleString()} routes`;
+}
+
+/* -------------------------- trips & stops ------------------------- */
+function renderRouteSelects() {
+  const options = state.routes
+    .map((r) => `<option value="${esc(r.route_id)}">( ${esc(r.route_short_name || "")} ) ${esc(r.route_long_name || r.route_id)}</option>`)
+    .join("");
+  for (const sel of [document.getElementById("tripsRouteSelect"), document.getElementById("stRouteSelect")]) {
+    sel.innerHTML = state.routes.length ? options : `<option value="">— load a feed —</option>`;
+  }
+  const routeId = state.selectedRouteId ?? state.routes[0]?.route_id ?? "";
+  document.getElementById("tripsRouteSelect").value = routeId;
+  document.getElementById("stRouteSelect").value = routeId;
+  if (routeId) selectRoute(routeId, { skipRenderSt: true });
+}
+
+function selectRoute(routeId, { skipRenderSt = false } = {}) {
+  state.selectedRouteId = routeId;
+  const tripId = (state.tripsByRoute.get(routeId) || [])[0]?.trip_id ?? null;
+  state.selectedTripId = tripId;
+  renderTripsPanel();
+  filterRoutes();
+  if (!skipRenderSt) {
+    renderStopTimesView();
+  }
+}
+
+function renderTripsPanel() {
+  const wrap = document.getElementById("tripsWrap");
+  const routeId = document.getElementById("tripsRouteSelect").value;
+  const trips = state.tripsByRoute.get(routeId) || [];
+  wrap.innerHTML = trips.length ? `
+    <table>
+      <thead><tr><th>Time (first dep.)</th><th>Trip ID</th><th>Service</th><th>Headsign</th><th class="num"># Stops</th></tr></thead>
+      <tbody>
+        ${trips.map((t) => {
+          const sts = state.stopTimesByTrip.get(t.trip_id) || [];
+          return `<tr data-trip="${esc(t.trip_id)}" class="${t.trip_id === state.selectedTripId ? "selected" : ""}">
+            <td class="num">${esc(sts[0]?.departure_time || sts[0]?.arrival_time || "—")}</td>
+            <td>${esc(t.trip_id)}</td>
+            <td>${esc(t.service_id || "")}</td>
+            <td>${esc(t.trip_headsign || "")}</td>
+            <td class="num">${sts.length}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>` : `<div class="empty">${routeId ? "No trips for this route" : "Load a GTFS zip to begin"}</div>`;
+  document.getElementById("tripsHint").textContent = `${trips.length.toLocaleString()} trips`;
+}
+
+function renderStopsPanel() {
+  const q = document.getElementById("stopsSearch").value.trim().toLowerCase();
+  const rows = state.stops.filter((s) =>
+    !q || [s.stop_name, s.stop_code, s.stop_id].some((v) => (v || "").toLowerCase().includes(q)));
+  document.getElementById("stopsWrap").innerHTML = state.stops.length ? `
+    <table>
+      <thead><tr><th>Stop ID</th><th>Code</th><th>Name</th><th class="num">Lat</th><th class="num">Lon</th></tr></thead>
+      <tbody>
+        ${rows.map((s) => `<tr style="cursor:default">
+          <td>${esc(s.stop_id)}</td>
+          <td>${esc(s.stop_code || "")}</td>
+          <td>${esc(s.stop_name || "")}</td>
+          <td class="num">${esc(s.stop_lat ?? "")}</td>
+          <td class="num">${esc(s.stop_lon ?? "")}</td>
+        </tr>`).join("")}
+      </tbody>
+    </table>` : `<div class="empty">Load a GTFS zip to begin</div>`;
+  document.getElementById("stopsHint").textContent = `${rows.length.toLocaleString()} / ${state.stops.length.toLocaleString()} stops`;
+}
+
+/* --------------------------- stop times --------------------------- */
+function renderStopTimesView() {
+  const sel = document.getElementById("stTripSelect");
+  const routeId = document.getElementById("stRouteSelect").value;
+  const trips = state.tripsByRoute.get(routeId) || [];
+  sel.innerHTML = trips.map((t) => {
+    const sts = state.stopTimesByTrip.get(t.trip_id) || [];
+    const time = sts[0]?.departure_time || sts[0]?.arrival_time || "";
+    return `<option value="${esc(t.trip_id)}">${esc(time)} · ${esc(t.trip_headsign || t.trip_id)}</option>`;
+  }).join("") || `<option value="">— no trips —</option>`;
+  if (state.selectedTripId && trips.some((t) => t.trip_id === state.selectedTripId)) sel.value = state.selectedTripId;
+  renderTimetable();
+}
+
+function renderTimetable() {
+  const head = document.getElementById("ttHead");
+  const wrap = document.getElementById("ttWrap");
+  const tripId = document.getElementById("stTripSelect").value;
+  const trip = state.tripsById.get(tripId);
+  const sts = (state.stopTimesByTrip.get(tripId) || [])
+    .slice()
+    .sort((a, b) => (+a.stop_sequence || 0) - (+b.stop_sequence || 0));
+  if (!sts.length) {
+    head.style.display = "none";
+    wrap.innerHTML = `<div class="empty">No stop_times rows for this trip</div>`;
+    return;
+  }
+  const route = state.routesById.get(trip?.route_id);
+  head.style.display = "";
+  head.innerHTML = `
+    <span class="chip" style="background:${esc(route?.route_color ? "#" + route.route_color : "var(--accent)")};color:${esc(route?.route_text_color ? "#" + route.route_text_color : "#fff")}">${esc(route?.route_short_name || "")}</span>
+    <span class="title">${esc(trip?.trip_headsign || route?.route_long_name || tripId)}</span>
+    <span class="badge">Trip ${esc(tripId)}</span>
+    ${trip?.service_id ? `<span class="badge">Service ${esc(trip.service_id)}</span>` : ""}
+    <span class="badge">${sts.length} stops</span>`;
+  wrap.innerHTML = `
+    <table>
+      <thead><tr><th class="num">Seq</th><th>Arrival</th><th>Departure</th><th>Stop</th><th>Stop ID</th><th>Pickup / Drop off</th></tr></thead>
+      <tbody>
+        ${sts.map((st) => {
+          const stop = state.stopsById.get(st.stop_id);
+          const tripStopName = st.stop_headsign || stop?.stop_name || st.stop_id;
+          const pickup = st.pickup_type ?? 0, dropoff = st.drop_off_type ?? 0;
+          const weird = +pickup !== 0 || +dropoff !== 0;
+          return `<tr style="cursor:default">
+            <td class="num">${esc(st.stop_sequence)}</td>
+            <td class="num">${esc(st.arrival_time || "")}</td>
+            <td class="num">${esc(st.departure_time || "")}</td>
+            <td>${esc(tripStopName)}</td>
+            <td>${esc(st.stop_id)}</td>
+            <td>${weird ? `<span class="warn" title="pickup: ${esc(PICKUP_LABELS[pickup] ?? pickup)} · drop off: ${esc(PICKUP_LABELS[dropoff] ?? dropoff)}">⚠ ${esc(pickup)}/${esc(dropoff)}</span>` : ""}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+}
+
+/* --------------------------- wiring ------------------------------ */
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  if (e.target.files[0]) loadFeed(e.target.files[0]);
+  e.target.value = "";
+});
+
+for (const btn of navButtons()) btn.addEventListener("click", () => showView(btn.dataset.view));
+
+document.getElementById("routesSearch").addEventListener("input", filterRoutes);
+document.getElementById("stopsSearch").addEventListener("input", renderStopsPanel);
+document.getElementById("routesWrap").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-route]");
+  if (!tr) return;
+  const routeId = tr.dataset.route;
+  document.getElementById("tripsRouteSelect").value = routeId;
+  selectRoute(routeId);
+  showView("trips");
+});
+document.getElementById("tripsRouteSelect").addEventListener("change", (e) => {
+  selectRoute(e.target.value);
+  document.getElementById("stRouteSelect").value = e.target.value;
+});
+document.getElementById("stRouteSelect").addEventListener("change", (e) => {
+  document.getElementById("tripsRouteSelect").value = e.target.value;
+  selectRoute(e.target.value);
+});
+document.getElementById("stTripSelect").addEventListener("change", (e) => {
+  state.selectedTripId = e.target.value;
+  renderTimetable();
+  renderTripsPanel();
+  filterRoutes();
+});
+document.getElementById("tripsWrap").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr[data-trip]");
+  if (!tr) return;
+  state.selectedTripId = tr.dataset.trip;
+  document.getElementById("stTripSelect").value = state.selectedTripId;
+  renderTimetable();
+  renderTripsPanel();
+  filterRoutes();
+  showView("stoptimes");
+});
+
+/* initial scaffolding views */
+renderRoutes();
+renderTripsPanel();
+renderStopsPanel();
+</script>
+</body>
+</html>
